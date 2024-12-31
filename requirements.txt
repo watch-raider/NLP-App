@@ -5,3 +5,4 @@ llmwhisperer-client
 pydantic
 python-dotenv
 pandas
+ollama

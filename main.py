@@ -7,7 +7,7 @@ import tempfile
 
 from langchain.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import SystemMessagePromptTemplate, ChatPromptTemplate, HumanMessagePromptTemplate
+from langchain.prompts import SystemMessagePromptTemplate, ChatPromptTemplate, HumanMessagePromptTemplate, PromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 
 import pandas as pd
@@ -22,29 +22,6 @@ from model import Prompt
 
 import streamlit as st
 import uuid
-
-def create_prompt_model(fields, document_type, prompts):
-    return create_model(document_type, **{p.field_name: (fields[p.field_name]["datatype"], p.prompt_instructions) for p in prompts})
-
-def get_prompts(fields, document_type):
-    gen_prompts = []
-    for key in fields:
-        human_text = "{instruction}\n{format_instructions}"
-        message = HumanMessagePromptTemplate.from_template(human_text)
-        gen_prompt = ChatPromptTemplate.from_messages([message])
-
-        model = ChatGoogleGenerativeAI(model="gemini-pro")
-
-        chain = gen_prompt | model | output_parser
-        gen_prompt = chain.invoke(
-            {"instruction":f"""
-            You are a helpful assistant that provides prompts for an AI agent like yourself for extracting a specific field from a specified document.
-            Can you provide a prompt for instructing an AI agent to extract the field: {key}, of datatype: {fields[key]["datatype"]}, from a document of type: {document_type}
-            """,
-            "format_instructions":format_instructions})
-        gen_prompts.append(gen_prompt)
-
-    return gen_prompts
 
 def add_row():
     element_id = uuid.uuid4()
@@ -64,6 +41,29 @@ def generate_row(row_id):
     )
     row_columns[2].button("🗑️", key=f"del_{row_id}", on_click=remove_row, args=[row_id])
     return {"name": row_name, "datatype": row_datatype}
+
+def get_prompts(fields, document_type):
+    gen_prompts = []
+    parser = PydanticOutputParser(pydantic_object=Prompt)
+    prompt = PromptTemplate(
+        template="""You are a helpful assistant that provides prompts for an LLM like yourself for extracting a specific field from a specified document. Answer the user query.
+                    {format_instructions}
+                    {query}""",
+        input_variables=["query"],
+        partial_variables={"format_instructions": parser.get_format_instructions()},
+    )
+
+    model = ChatGoogleGenerativeAI(model="gemini-pro")
+    chain = prompt | model | parser
+
+    for key in fields:
+        gen_prompt = chain.invoke({"query": f"""Provide a prompt for instructing an LLM to extract the field: {key}, of datatype: {fields[key]["datatype"]}, from a document of type: {document_type}"""})
+        gen_prompts.append(gen_prompt)
+
+    return gen_prompts
+
+def create_prompt_model(fields, document_type, prompts):
+    return create_model(document_type, **{p.field_name: (fields[p.field_name]["datatype"], p.prompt_instructions) for p in prompts})
 
 def extract_txt_from_pdf(file_path):
     client = LLMWhispererClientV2()
@@ -103,9 +103,9 @@ def make_llm_chat_call(text, document_type, model):
     model = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
     response = model.invoke(request)
 
-    invoice_object = parser.parse(response.content)
+    document_object = parser.parse(response.content)
 
-    return invoice_object
+    return document_object
 
 
 if __name__ == "__main__":
@@ -128,6 +128,7 @@ if __name__ == "__main__":
 
     uploaded_file = st.file_uploader("Upload PDF", type=("pdf"))
     document_type = st.text_input("Document description")
+    model_selection = st.selectbox("Select model", ("Gemini", "Llama"))
     
     if uploaded_file:
         temp_dir = tempfile.mkdtemp()
