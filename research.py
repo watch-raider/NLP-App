@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 
 import streamlit as st
 import uuid
+import json
+import time
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
@@ -31,12 +33,50 @@ E_TEXT = "<|eot_id|>"
 B_HEAD = "<|start_header_id|>"
 E_HEAD = "<|end_header_id|>"
 
+gemini_model = "gemini-1.5-flash"
+llama_1b_model = "Llama-3.2-1B-Instruct"
+llama_3b_model = "Llama-3.2-3B-Instruct"
+
+llama_model_path = "/Users/mwalton/Documents/ELTE/PDF data extraction/"
+
 def add_row():
     element_id = uuid.uuid4()
     st.session_state["rows"].append(str(element_id))
 
 def remove_row(row_id):
     st.session_state["rows"].remove(str(row_id))
+
+def generate_row(row_id):
+    row_container = st.empty()
+    row_columns = row_container.columns((3, 2, 1))
+    row_name = row_columns[0].text_input("Field Name", key=f"txt_{row_id}")
+    row_datatype = row_columns[1].selectbox(
+        "Select Datatype", 
+        ("text", "number", "decimal", "datetime"),
+        key=f"datatype_{row_id}"
+    )
+    row_columns[2].button("🗑️", key=f"del_{row_id}", on_click=remove_row, args=[row_id])
+    return {"name": row_name, "datatype": row_datatype}
+
+def levenshtein_distance(s, t):
+    m, n = len(s), len(t)
+    if m < n:
+        s, t = t, s
+        m, n = n, m
+    d = [list(range(n + 1))] + [[i] + [0] * n for i in range(1, m + 1)]
+    for j in range(1, n + 1):
+        for i in range(1, m + 1):
+            if s[i - 1] == t[j - 1]:
+                d[i][j] = d[i - 1][j - 1]
+            else:
+                d[i][j] = min(d[i - 1][j], d[i][j - 1], d[i - 1][j - 1]) + 1
+    return d[m][n]
+ 
+def compute_similarity(input_string, reference_string):
+    distance = levenshtein_distance(input_string, reference_string)
+    max_length = max(len(input_string), len(reference_string))
+    similarity = 1 - (distance / max_length)
+    return similarity
 
 def assemble_prompt(text, role):
     if role == "system":
@@ -63,11 +103,11 @@ def set_model_llama(model_path, access_token):
 
     return model, tokenizer
 
-def generate_prompts_llama(model_path, access_token, doc_type, field, datatype):
-    llama_model, llama_tokenizer = set_model_llama(model_path, access_token)
-
+def generate_prompts_llama(llama_model, llama_tokenizer, doc_type, field_dict, field):
+    field_name = field_dict[key]["friendly_name"]
+    field_type = field_dict[key]["datatype"]
     text = assemble_prompt("You are a helpful assistant that provides prompts for an LLM like yourself for extracting a specific field from a specified document.", "system")
-    text += assemble_prompt(f"Provide a prompt for instructing an LLM to extract the {field} from a {doc_type} which is expected to have the datatype: {datatype}", "user")
+    text += assemble_prompt(f"Provide a prompt for instructing an LLM to extract the {field_name} from a {doc_type} which is expected to have the datatype: {field_type}", "user")
     text += assemble_prompt("The output should only contain the prompt. You SHOULD NOT include any other text in the response.","assistant")
     
     tokens = llama_tokenizer(text, return_tensors="pt")
@@ -77,17 +117,24 @@ def generate_prompts_llama(model_path, access_token, doc_type, field, datatype):
     prompt_result = Prompt(document_type=doc_type, field_name=field, prompt_instructions=result)
     return prompt_result
 
-def generate_row(row_id):
-    row_container = st.empty()
-    row_columns = row_container.columns((3, 2, 1))
-    row_name = row_columns[0].text_input("Field Name", key=f"txt_{row_id}")
-    row_datatype = row_columns[1].selectbox(
-        "Select Datatype", 
-        ("text", "number", "decimal", "datetime"),
-        key=f"datatype_{row_id}"
-    )
-    row_columns[2].button("🗑️", key=f"del_{row_id}", on_click=remove_row, args=[row_id])
-    return {"name": row_name, "datatype": row_datatype}
+def make_llama_chat_call(llama_model, llama_tokenizer, prompt, pdf_text, document_type):
+    text = assemble_prompt(
+        f"""
+        Your ability to extract and summarize this information accurately is essential for effective
+        {document_type} analysis. Pay close attention to the {document_type}'s language,
+        structure, and any cross-references to ensure a comprehensive and precise extraction of
+        information. Do not use prior knowledge or information from outside the context to answer the
+        questions. Only use the information provided in the context to answer the questions.
+        """, 
+        "system"
+        )
+    text += assemble_prompt(f"{prompt}: {pdf_text}", "user")
+    text += assemble_prompt("Do not include any explanation in the reply. Only include the extracted information in the reply.","assistant")
+    tokens = llama_tokenizer(text, return_tensors="pt")
+    gen = llama_model.generate(input_ids=tokens.input_ids, attention_mask=tokens.attention_mask, max_new_tokens=100).cpu()
+    cont = llama_tokenizer.decode(gen[:,tokens.input_ids.shape[1]:][0], skip_special_tokens=True)
+    result = cont.replace('"',"").replace("```","").replace("`","").strip().split("\n")[-1]
+    return result
 
 def get_prompts(fields, document_type):
     gen_prompts = []
@@ -100,7 +147,7 @@ def get_prompts(fields, document_type):
         partial_variables={"format_instructions": parser.get_format_instructions()},
     )
 
-    model = ChatGoogleGenerativeAI(model="gemini-pro")
+    model = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
     chain = prompt | model | parser
 
     for key in fields:
@@ -154,8 +201,6 @@ def make_llm_chat_call(text, document_type, model):
 
     return document_object
 
-llama_model_path = "/Users/mwalton/Documents/ELTE/PDF data extraction/Llama-3.2-1B-Instruct"
-
 if __name__ == "__main__":
     with st.sidebar:
         google_api_key = st.text_input("Google API Key", key="google_api_key", type="password")
@@ -181,7 +226,12 @@ if __name__ == "__main__":
 
     uploaded_file = st.file_uploader("Upload PDF", type=("pdf"))
     document_type = st.text_input("Document description")
-    model_selection = st.selectbox("Select model", ("Gemini", "Llama"))
+    model_selection = st.selectbox("Select model", (gemini_model, llama_1b_model, llama_3b_model))
+
+    if model_selection == llama_1b_model:
+        llama_model_path = f"{llama_model_path}{llama_1b_model}"
+    elif model_selection == llama_3b_model:
+        llama_model_path = f"{llama_model_path}{llama_3b_model}"
     
     if uploaded_file:
         temp_dir = tempfile.mkdtemp()
@@ -235,22 +285,38 @@ if __name__ == "__main__":
         # Outputed schema we will pass to the LLM containing the desired fields, instructions on how to extract the data and their expected datatype
         if fields_dict:
             st.subheader("Prompts")
+
+            if model_selection == llama_1b_model or model_selection == llama_3b_model:
+                llama_model, llama_tokenizer = set_model_llama(llama_model_path, hugging_face_token)
+
             if prompts_btn:
+                del st.session_state["prompts"]
                 if len(rows_collection) > 0:
-                    if model_selection == "Llama":
+                    if model_selection == llama_1b_model or model_selection == llama_3b_model:
                         if hugging_face_token:
                             with st.spinner('Processing...'):
+                                # records start time
+                                start = time.perf_counter()
                                 gen_prompts = []
+                                #llama_model, llama_tokenizer = set_model_llama(llama_model_path, hugging_face_token)
                                 for key in fields_dict.keys():
-                                    gen_prompt = generate_prompts_llama(llama_model_path, hugging_face_token, document_type, key, fields_dict[key]["datatype"])
+                                    gen_prompt = generate_prompts_llama(llama_model, llama_tokenizer, document_type, fields_dict, key)
                                     gen_prompts.append(gen_prompt)
+                                # record end time
+                                end = time.perf_counter()
+                                st.info(f"Time taken: {end-start}s")
                                 st.session_state["prompts"] = gen_prompts
                         else:
                             st.info("Make sure you have added your Hugging Face access token")
-                    if model_selection == "Gemini":
+                    if model_selection == gemini_model:
                         if google_api_key:
                             with st.spinner('Processing...'):
+                                # records start time
+                                start = time.perf_counter()
                                 st.session_state["prompts"] = get_prompts(fields_dict, document_type)
+                                # record end time
+                                end = time.perf_counter()
+                                st.info(f"Time taken: {end-start}s")
                         else:
                             st.info("Make sure you have added your Google API key")
                 else:
@@ -262,19 +328,77 @@ if __name__ == "__main__":
                 
                 confirm_prompts_btn = st.button("Confirm prompts")
 
+                st.subheader("Output")
+
                 if confirm_prompts_btn:
+                    del st.session_state["time_taken"]
+                    del st.session_state["json_result"]
                     p_model = create_prompt_model(fields_dict, document_type, st.session_state["prompts"])
                     if llmwhisperer_api_key:
-                        st.subheader("Output")
                         pdf_txt = ""
                         with st.spinner('Processing...'):
                             txt_result = extract_txt_from_pdf(file_path)
                             pdf_txt = txt_result["extraction"]["result_text"]
-                        if len(pdf_txt) > 0:
-                            document_obj = make_llm_chat_call(pdf_txt, document_type, p_model)
-                            json_obj = document_obj.model_dump_json()
-                            st.json(json_obj)
+                            st.session_state["pdf_text"] = pdf_txt
+                            if len(pdf_txt) > 0:
+                                if model_selection == gemini_model:
+                                    # records start time
+                                    start = time.perf_counter()
+                                    document_obj = make_llm_chat_call(pdf_txt, document_type, p_model)
+                                    # record end time
+                                    end = time.perf_counter()
+                                    st.info(f"Time taken: {end-start}s")
+                                    json_obj = document_obj.model_dump_json()
+                                    st.session_state["json_result"] = json_obj
+                                elif model_selection == llama_1b_model or model_selection == llama_3b_model:
+                                    #llama_model, llama_tokenizer = set_model_llama(llama_model_path, hugging_face_token)
+                                    result_dict = {}
+                                    # records start time
+                                    start = time.perf_counter()
+                                    for p in st.session_state["prompts"]:
+                                        extracted_field = make_llama_chat_call(llama_model, llama_tokenizer, p.prompt_instructions, pdf_txt, document_type)
+                                        result_dict[f"{p.field_name}"] = extracted_field
+                                    # record end time
+                                    end = time.perf_counter()
+                                    st.session_state["time_taken"] = end-start
+                                    st.info(f"Time taken: {end-start}s")
+                                    json_object = json.dumps(result_dict, indent=4)
+                                    st.session_state["json_result"] = json_object
                     else:
                         st.info("Make sure you have added your LLM Whisperer API key")
+
+                if "json_result" in st.session_state:
+                    st.json(st.session_state["json_result"])
+                    measure_btn = st.button("Measure Accuracy")
+                    st.subheader("Performance")
+
+                    if measure_btn:
+                        with st.spinner('Processing...'):
+                            p_model = create_prompt_model(fields_dict, document_type, st.session_state["prompts"])
+                            start = time.perf_counter()
+                            gemini_obj = make_llm_chat_call(st.session_state["pdf_text"], document_type, p_model)
+                            gemini_json = gemini_obj.model_dump_json()
+                            # record end time
+                            end = time.perf_counter()
+                            time_taken = st.session_state["time_taken"]
+                            st.write(f"{gemini_model} result")
+                            st.json(gemini_json)
+                            st.write(f"Time taken comparison")
+                            st.write(f"{gemini_model}: {end-start}s")
+                            st.write(f"{model_selection}: {time_taken}s")
+                            acc_dict = {}
+                            total_score = 0
+                            num_of_fields = len(fields_dict.keys())
+                            llama_json = st.session_state["json_result"]
+                            for key in fields_dict.keys():
+                                llama_dict = json.loads(llama_json)
+                                gemini_dict = json.loads(gemini_json)
+                                score = compute_similarity(llama_dict[key], gemini_dict[key])
+                                total_score += score
+                                acc_dict[f"{key}_score"] = score
+                            st.json(acc_dict)
+                            st.info(f"Average Accuracy Score: {total_score/num_of_fields}")
+
+                        
     else:
         st.info("Please upload PDF and specify description of document")

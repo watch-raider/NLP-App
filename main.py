@@ -23,6 +23,8 @@ from model import Prompt
 import streamlit as st
 import uuid
 
+gemini_model = "gemini-1.5-flash"
+
 def add_row():
     element_id = uuid.uuid4()
     st.session_state["rows"].append(str(element_id))
@@ -53,7 +55,7 @@ def get_prompts(fields, document_type):
         partial_variables={"format_instructions": parser.get_format_instructions()},
     )
 
-    model = ChatGoogleGenerativeAI(model="gemini-pro")
+    model = ChatGoogleGenerativeAI(model=gemini_model)
     chain = prompt | model | parser
 
     for key in fields:
@@ -100,7 +102,7 @@ def make_llm_chat_call(text, document_type, model):
                                         raw_file_data=text,
                                         postamble=postamble).to_messages()
 
-    model = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
+    model = ChatGoogleGenerativeAI(model=gemini_model)
     response = model.invoke(request)
 
     document_object = parser.parse(response.content)
@@ -128,7 +130,7 @@ if __name__ == "__main__":
 
     uploaded_file = st.file_uploader("Upload PDF", type=("pdf"))
     document_type = st.text_input("Document description")
-    model_selection = st.selectbox("Select model", ("Gemini", "Llama"))
+    #model_selection = st.selectbox("Select model", ("Gemini", "Llama"))
     
     if uploaded_file:
         temp_dir = tempfile.mkdtemp()
