@@ -1,0 +1,24 @@
+{
+    "Llama-3.2-1B-Instruct": {
+        "fields": {
+            "invoice_number_score": {
+                "iteration": 4,
+                "score": 1.0
+            },
+            "date_of_issue_score": {
+                "iteration": 4,
+                "score": 0.25
+            },
+            "client_name_score": {
+                "iteration": 4,
+                "score": 0.14649574563367668
+            },
+            "total_score": {
+                "iteration": 4,
+                "score": 0.42948717948717946
+            }
+        },
+        "iteration": 4,
+        "avg_score": 0.45649573128021403
+    }
+}

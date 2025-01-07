@@ -37,6 +37,7 @@ gemini_model = "gemini-1.5-flash"
 llama_1b_model = "Llama-3.2-1B-Instruct"
 llama_3b_model = "Llama-3.2-3B-Instruct"
 
+project_path = "/Users/mwalton/Documents/ELTE/PDF data extraction/NLP App/"
 llama_model_path = "/Users/mwalton/Documents/ELTE/PDF data extraction/"
 
 def add_row():
@@ -57,6 +58,21 @@ def generate_row(row_id):
     )
     row_columns[2].button("🗑️", key=f"del_{row_id}", on_click=remove_row, args=[row_id])
     return {"name": row_name, "datatype": row_datatype}
+
+def create_json(path, json_dict, avg_score, acc_dict):
+    json_dict[f"{model_selection}"] = {}
+    json_dict[f"{model_selection}"]["fields"] = {}
+    json_dict[f"{model_selection}"]["iteration"] = 1
+    json_dict[f"{model_selection}"]["avg_score"] = avg_score
+    for key in acc_dict.keys():
+        json_dict[f"{model_selection}"]["fields"][f"{key}"] = {}
+        json_dict[f"{model_selection}"]["fields"][f"{key}"]["iteration"] = 1
+        json_dict[f"{model_selection}"]["fields"][f"{key}"]["score"] = acc_dict[f"{key}"]
+    # Serializing json
+    json_object = json.dumps(json_dict, indent=4)
+    # Writing to sample.json
+    with open(path, "w") as outfile:
+        outfile.write(json_object)
 
 def levenshtein_distance(s, t):
     m, n = len(s), len(t)
@@ -93,7 +109,8 @@ def set_model_llama(model_path, access_token):
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         token=access_token,
-        torch_dtype="auto"
+        torch_dtype="auto",
+        device_map="auto"
     )
 
     if tokenizer.pad_token_id is None:
@@ -274,7 +291,7 @@ if __name__ == "__main__":
                     fields_dict[f"{field_name}"]["friendly_name"] = x["name"]
 
                     if x["datatype"] == "datetime":
-                        fields_dict[f"{field_name}"]["datatype"] = datetime
+                        fields_dict[f"{field_name}"]["datatype"] = str
                     elif x["datatype"] == "number":
                         fields_dict[f"{field_name}"]["datatype"] = int
                     elif x["datatype"] == "decimal":
@@ -290,7 +307,14 @@ if __name__ == "__main__":
                 llama_model, llama_tokenizer = set_model_llama(llama_model_path, hugging_face_token)
 
             if prompts_btn:
-                del st.session_state["prompts"]
+                if "prompts" in st.session_state:
+                    del st.session_state["prompts"]
+                if "time_taken" in st.session_state:
+                    del st.session_state["time_taken"]
+                if "json_result" in st.session_state:
+                    del st.session_state["json_result"]
+                if "pdf_text" in st.session_state:
+                    del st.session_state["pdf_text"]
                 if len(rows_collection) > 0:
                     if model_selection == llama_1b_model or model_selection == llama_3b_model:
                         if hugging_face_token:
@@ -331,8 +355,12 @@ if __name__ == "__main__":
                 st.subheader("Output")
 
                 if confirm_prompts_btn:
-                    del st.session_state["time_taken"]
-                    del st.session_state["json_result"]
+                    if "time_taken" in st.session_state:
+                        del st.session_state["time_taken"]
+                    if "json_result" in st.session_state:
+                        del st.session_state["json_result"]
+                    if "pdf_text" in st.session_state:
+                        del st.session_state["pdf_text"]
                     p_model = create_prompt_model(fields_dict, document_type, st.session_state["prompts"])
                     if llmwhisperer_api_key:
                         pdf_txt = ""
@@ -351,7 +379,6 @@ if __name__ == "__main__":
                                     json_obj = document_obj.model_dump_json()
                                     st.session_state["json_result"] = json_obj
                                 elif model_selection == llama_1b_model or model_selection == llama_3b_model:
-                                    #llama_model, llama_tokenizer = set_model_llama(llama_model_path, hugging_face_token)
                                     result_dict = {}
                                     # records start time
                                     start = time.perf_counter()
@@ -393,11 +420,78 @@ if __name__ == "__main__":
                             for key in fields_dict.keys():
                                 llama_dict = json.loads(llama_json)
                                 gemini_dict = json.loads(gemini_json)
-                                score = compute_similarity(llama_dict[key], gemini_dict[key])
+                                score = compute_similarity(str(llama_dict[key]), str(gemini_dict[key]))
                                 total_score += score
                                 acc_dict[f"{key}_score"] = score
                             st.json(acc_dict)
-                            st.info(f"Average Accuracy Score: {total_score/num_of_fields}")
+                            avg_score = total_score/num_of_fields
+                            st.info(f"Average Accuracy Score: {avg_score}")
+
+                            path = f"{project_path}/json_db/{document_type}.json"
+                            isExist = os.path.exists(path) 
+                            if isExist:
+                                # Opening JSON file
+                                with open(path, 'r') as openfile:
+                                    # Reading from json file
+                                    json_dict = json.load(openfile)
+                                    if model_selection in json_dict:
+                                        json_dict[model_selection]["iteration"] += 1
+                                        n = json_dict[model_selection]["iteration"]
+                                        json_dict[model_selection]["avg_score"] = json_dict[model_selection]["avg_score"]*((n-1)/n) + (avg_score/n)
+                                        for key in acc_dict.keys():
+                                            if key in json_dict[model_selection]["fields"]:
+                                                json_dict[model_selection]["fields"][key]["iteration"] += 1
+                                                n = json_dict[model_selection]["fields"][key]["iteration"]
+                                                json_dict[model_selection]["fields"][key]["score"] = json_dict[model_selection]["fields"][key]["score"]*((n-1)/n) + (acc_dict[key]/n)
+                                            else:
+                                                json_dict[model_selection]["fields"][key] = {}
+                                                json_dict[model_selection]["fields"][key]["iteration"] = 1
+                                                json_dict[model_selection]["fields"][key]["score"] = acc_dict[key]
+                                        # Serializing json
+                                        json_object = json.dumps(json_dict, indent=4)
+                                        # Writing to sample.json
+                                        with open(path, "w") as outfile:
+                                            outfile.write(json_object)
+                                    else:
+                                        create_json(path, json_dict, avg_score, acc_dict)
+                            else:
+                                f = open(path, "w")
+                                json_dict = {}
+                                create_json(path, json_dict, avg_score, acc_dict)
+
+                            if isExist:
+                                with open(path, 'r') as openfile:
+                                    # Reading from json file
+                                    json_dict = json.load(openfile)
+                                    history_score_dict = {}
+                                    history_iteration_dict = {}
+                                    history_score_dict["field"] = []
+                                    history_score_dict["score"] = []
+                                    history_iteration_dict["field"] = []
+                                    history_iteration_dict["runs"] = []
+                                    for key in json_dict[model_selection]["fields"]:
+                                        history_score_dict["field"].append(key.replace("_score", ""))
+                                        history_score_dict["score"].append(json_dict[model_selection]["fields"][key]["score"])
+                                        history_iteration_dict["field"].append(key.replace("_score", ""))
+                                        history_iteration_dict["runs"].append(json_dict[model_selection]["fields"][key]["iteration"])
+
+                                    history_score_data = pd.DataFrame.from_dict(history_score_dict)
+                                    history_iteration_data = pd.DataFrame.from_dict(history_iteration_dict)
+                                    avg_model_score = json_dict[model_selection]["avg_score"]
+                                    model_iterations = json_dict[model_selection]["iteration"]
+
+                                    st.subheader("History")
+                                    st.bar_chart(history_score_data, x="field", y="score", horizontal=True)
+                                    st.bar_chart(history_iteration_data, x="field", y="runs", horizontal=True)
+                                    st.info(f"Running Average Accuracy Score: {avg_model_score}")
+                                    st.info(f"Number of runs on {document_type}: {model_iterations}")
+
+
+
+                            
+                            
+                            
+
 
                         
     else:
