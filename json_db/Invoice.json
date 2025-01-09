@@ -2,7 +2,7 @@
     "Llama-3.2-1B-Instruct": {
         "fields": {
             "invoice_number_score": {
-                "iteration": 4,
+                "iteration": 5,
                 "score": 1.0
             },
             "date_of_issue_score": {
@@ -16,9 +16,95 @@
             "total_score": {
                 "iteration": 4,
                 "score": 0.42948717948717946
+            },
+            "seller_gender_score": {
+                "iteration": 1,
+                "score": 0.4
+            },
+            "purchased_items_category_score": {
+                "iteration": 1,
+                "score": 0.10204081632653061
+            },
+            "seller_tax_id_score": {
+                "iteration": 3,
+                "score": 0.7368421052631579
+            },
+            "client_tax_id_score": {
+                "iteration": 3,
+                "score": 0.45454545454545453
+            },
+            "seller_iban_score": {
+                "iteration": 3,
+                "score": 0.9545454545454546
+            },
+            "client_postcode_score": {
+                "iteration": 2,
+                "score": 0.19090909090909086
+            },
+            "seller_postcode_score": {
+                "iteration": 2,
+                "score": 0.08333333333333331
+            },
+            "total_quantity_score": {
+                "iteration": 2,
+                "score": 0.0
             }
         },
-        "iteration": 4,
-        "avg_score": 0.45649573128021403
+        "iteration": 10,
+        "avg_score": 0.46554244944120493
+    },
+    "Llama-3.2-3B-Instruct": {
+        "fields": {
+            "invoice_number_score": {
+                "iteration": 2,
+                "score": 1.0
+            },
+            "date_of_issue_score": {
+                "iteration": 4,
+                "score": 1.0
+            },
+            "total_amount_score": {
+                "iteration": 4,
+                "score": 0.6904761904761905
+            },
+            "client_name_score": {
+                "iteration": 2,
+                "score": 1.0
+            },
+            "seller_gender_score": {
+                "iteration": 1,
+                "score": 1.0
+            },
+            "purchased_items_category_score": {
+                "iteration": 1,
+                "score": 0.0
+            },
+            "seller_tax_id_score": {
+                "iteration": 3,
+                "score": 1.0
+            },
+            "client_tax_id_score": {
+                "iteration": 3,
+                "score": 0.3333333333333333
+            },
+            "seller_iban_score": {
+                "iteration": 3,
+                "score": 1.0
+            },
+            "client_postcode_score": {
+                "iteration": 2,
+                "score": 0.0
+            },
+            "seller_postcode_score": {
+                "iteration": 2,
+                "score": 0.7083333333333333
+            },
+            "total_quantity_score": {
+                "iteration": 2,
+                "score": 0.33333333333333337
+            }
+        },
+        "iteration": 10,
+        "avg_score": 0.7115079365079364
     }
 }
