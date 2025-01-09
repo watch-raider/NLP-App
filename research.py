@@ -37,9 +37,6 @@ gemini_model = "gemini-1.5-flash"
 llama_1b_model = "Llama-3.2-1B-Instruct"
 llama_3b_model = "Llama-3.2-3B-Instruct"
 
-project_path = "/Users/mwalton/Documents/ELTE/PDF data extraction/NLP App/"
-llama_model_path = "/Users/mwalton/Documents/ELTE/PDF data extraction/"
-
 def add_row():
     element_id = uuid.uuid4()
     st.session_state["rows"].append(str(element_id))
@@ -223,6 +220,7 @@ if __name__ == "__main__":
         google_api_key = st.text_input("Google API Key", key="google_api_key", type="password")
         llmwhisperer_api_key = st.text_input("LLM Whisperer API Key", key="llmwhisperer_api_key", type="password")
         hugging_face_token = st.text_input("Hugging Face access Token", key="hugging_face_token", type="password")
+        llama_directory = st.text_input("Llama Directory", key="llama_directory")
 
     st.title("📝 File NLP Extractor Pipeline")
 
@@ -241,14 +239,25 @@ if __name__ == "__main__":
     elif os.environ.get('HUGGING_FACE_TOKEN'):
         hugging_face_token = os.environ.get('HUGGING_FACE_TOKEN')
 
+    if llama_directory:
+        os.environ["LLAMA_DIRECTORY_PATH"] = llama_directory
+    elif os.environ.get('LLAMA_DIRECTORY_PATH'):
+        llama_directory = os.environ.get('LLAMA_DIRECTORY_PATH')
+
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    project_path = os.getcwd()
+
     uploaded_file = st.file_uploader("Upload PDF", type=("pdf"))
     document_type = st.text_input("Document description")
     model_selection = st.selectbox("Select model", (gemini_model, llama_1b_model, llama_3b_model))
 
+    if (model_selection == llama_1b_model or model_selection == llama_3b_model) and not llama_directory:
+        st.info("Please enter the path to your Llama 1B and 3B models directory")
+
     if model_selection == llama_1b_model:
-        llama_model_path = f"{llama_model_path}{llama_1b_model}"
+        llama_model_path = f"{llama_directory}{llama_1b_model}"
     elif model_selection == llama_3b_model:
-        llama_model_path = f"{llama_model_path}{llama_3b_model}"
+        llama_model_path = f"{llama_directory}{llama_3b_model}"
     
     if uploaded_file:
         temp_dir = tempfile.mkdtemp()
